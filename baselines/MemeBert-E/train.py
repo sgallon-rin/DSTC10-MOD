@@ -8,14 +8,17 @@ from model import MemeBERT
 from dataset import MemeDataset, get_data 
 from torch.utils.data import DataLoader  
 
-bert_path = 'ckpt/bert'
-train_data_path = 'data/dialog/e_train.json'
+#bert_path = 'ckpt/bert'
+#train_data_path = 'data/dialog/e_train.json'
+bert_path = 'bert-base-uncased'
+train_data_path='data/MOD_full/ft_local/MOD-Dataset/train/e_train.json'
 lr = 6e-5 
 epochs = 88
 use_cuda = torch.cuda.is_available() 
 device = torch.device('cuda' if use_cuda else 'cpu') 
 gradient_accumulation_steps = 5 
-print_freq = 1
+#print_freq = 1
+print_freq = 5000
 
 def main(): 
     tokenizer = AutoTokenizer.from_pretrained(bert_path) 
@@ -68,7 +71,7 @@ def train(model, tokenizer, optimizer, dataset, epoch):
             'Loss {loss.val:.4f} ({loss.avg:.4f})\t'
             'Classify Acc {acc1.val:.3f} ({acc1.avg:.3f})|{acc3.val:.3f} ({acc3.avg:.3f})|{acc5.val:.3f} ({acc5.avg:.3f})'.format(epoch, iteration, len(dataset),loss=avg_loss, acc1=avg_acc1, acc3=avg_acc3, acc5=avg_acc5)) 
         iteration += 1 
-        break 
+        #break 
 
 def acc_compute(logits, labels):
     _, idx = torch.sort(logits.squeeze(0)) 

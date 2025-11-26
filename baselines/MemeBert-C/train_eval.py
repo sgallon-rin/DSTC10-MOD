@@ -1,19 +1,63 @@
+"""
+python baselines/MemeBert-C/train_eval.py \
+  --do_train --do_eval \
+  --train_path data/MOD_full/ft_local/MOD-Dataset/validation/validation.json \
+  --output_dir runs/memebert-c-test
+
+python baselines/MemeBert-C/train_eval.py --do_eval --do_test 
+
+python baselines/MemeBert-C/train_eval.py \
+  --do_test \
+  --checkpoint_path runs/memebert-c-test/memebert_c.pt
+"""
+
 import argparse
 import json
 import os
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Tuple
-
+import random
+import numpy as np
 import torch
 from torch.utils.data import DataLoader
 from transformers import AdamW, AutoTokenizer
+from transformers.utils import logging as hf_logging
 
-from dataset import MemeDataset, build_input_from_segments, get_data, tokenize
+from dataset import MemeDataset, get_data, tokenize
 from model import MemeBERT
-from score_script.task2_score import map_compute, recall_compute
 
+hf_logging.set_verbosity_error()
 os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
 
+
+def set_seed(seed: int = 42):
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    torch.use_deterministic_algorithms(True, warn_only=True)
+    torch.backends.cudnn.benchmark = False
+    torch.backends.cudnn.deterministic = True
+
+# Recall at position k in n candiates R_n@K 
+# measure if the positive meme is ranked in the topK position of n candidates 
+def recall_compute(candidates, targets, k=5): 
+    if len(candidates) > k:
+        candidates = candidates[:k]
+    if targets not in candidates:
+        return 0 
+    else: 
+        return 1 
+
+# MAP: mean average precision 
+def map_compute(candidates, targets, k=5): 
+    if len(candidates) > k:
+        candidates = candidates[:k]
+    if targets not in candidates:
+        return 0 
+    else: 
+        idx = candidates.index(targets) 
+        return 1.0 / (1.0 + idx) 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="MemeBERT-C training + validation/testing helper.")
@@ -113,28 +157,21 @@ def prepare_eval_tensor(sample: Dict, tokenizer) -> Optional[torch.Tensor]:
     history = sample.get("history", [])
     if not history:
         return None
-
-    context_turns = []
-    for turn in history[:-1]:
+    tokens: List[int] = []
+    for turn in history:
         if "txt" not in turn:
             continue
-        cloned = dict(turn)
-        cloned["txt"] = tokenize(cloned["txt"], tokenizer)
-        context_turns.append(cloned)
-
-    answer = None
-    last_turn = history[-1]
-    if "txt" in last_turn:
-        answer = {"txt": tokenize(last_turn["txt"], tokenizer)}
-
-    if not context_turns and answer is None:
+        tokens += tokenize(turn["txt"], tokenizer)
+    if not tokens:
         return None
-
-    input_ids, _ = build_input_from_segments(context_turns, tokenizer, answer)
+    if len(tokens) >= 505:
+        tokens = tokens[-500:]
+    cls_token, sep_token = tokenizer.convert_tokens_to_ids(["[CLS]", "[SEP]"])
+    input_ids = [cls_token] + tokens + [sep_token]
     return torch.LongTensor(input_ids).unsqueeze(0)
 
 
-def gather_candidates(sample: Dict, num_labels: int) -> List[Tuple[int, str]]:
+def gather_candidates(sample: Dict, num_labels: int) -> List[Tuple[int, str, bool]]:
     candidate = sample.get("candidate", {})
     cand_set = candidate.get("set", [])
     pairs = []
@@ -144,9 +181,10 @@ def gather_candidates(sample: Dict, num_labels: int) -> List[Tuple[int, str]]:
                 cid_int = int(cid)
             except ValueError:
                 continue
-            pairs.append((cid_int, str(cid)))
+            in_vocab = 0 <= cid_int < num_labels
+            pairs.append((cid_int, str(cid), in_vocab))
     else:
-        pairs = [(idx, str(idx).zfill(3)) for idx in range(num_labels)]
+        pairs = [(idx, str(idx).zfill(3), True) for idx in range(num_labels)]
     return pairs
 
 
@@ -180,9 +218,14 @@ def evaluate_split(
             logits = logits.squeeze(0).detach().cpu()
 
             candidate_pairs = gather_candidates(sample, model.num_labels)
-            ranked = sorted(candidate_pairs, key=lambda x: logits[x[0]].item(), reverse=True)
-            ranked_ids = [item[0] for item in ranked]
-            ranked_str = [item[1] for item in ranked]
+            scored = []
+            for cid_int, cid_str, in_vocab in candidate_pairs:
+                score = logits[cid_int].item() if in_vocab else float("-inf")
+                scored.append((score, cid_int, cid_str))
+
+            ranked = sorted(scored, key=lambda x: x[0], reverse=True)
+            ranked_ids = [item[1] for item in ranked]
+            ranked_str = [item[2] for item in ranked]
 
             predictions.append(
                 {
@@ -193,14 +236,14 @@ def evaluate_split(
 
             if "answer" in sample and "img_id" in sample["answer"]:
                 try:
-                    target = int(sample["answer"]["img_id"])
+                    target = str(sample["answer"]["img_id"])
                 except ValueError:
                     continue
                 counted += 1
                 for k in recall_ks:
-                    metrics[f"recall@{k}"] += recall_compute(ranked_ids, target, k)
+                    metrics[f"recall@{k}"] += recall_compute(ranked_str, target, k)
                 for k in map_ks:
-                    metrics[f"map@{k}"] += map_compute(ranked_ids, target, k)
+                    metrics[f"map@{k}"] += map_compute(ranked_str, target, k)
 
     if counted > 0:
         for key in metrics:
@@ -294,4 +337,5 @@ def main():
 
 
 if __name__ == "__main__":
+    set_seed(42)
     main()

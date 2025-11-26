@@ -8,14 +8,17 @@ from model import MemeBERT
 from dataset import MemeDataset, get_data 
 from torch.utils.data import DataLoader  
 
-bert_path = 'ckpt/bert'
-train_data_path = 'data/dialog/train.json'
+# bert_path = 'ckpt/bert'
+# train_data_path = 'data/dialog/train.json'
+bert_path = 'bert-base-chinese'
+train_data_path='data/MOD_full/ft_local/MOD-Dataset/train/c_train.json'
 lr = 6e-5 
 epochs = 8
 use_cuda = torch.cuda.is_available() 
 device = torch.device('cuda' if use_cuda else 'cpu') 
 gradient_accumulation_steps = 5 
-print_freq = 1
+# print_freq = 1
+print_freq = 5000
 
 def main(): 
     tokenizer = AutoTokenizer.from_pretrained(bert_path) 
@@ -30,13 +33,15 @@ def main():
 
     for epoch in range(epochs):
         train(model=model, tokenizer=tokenizer, optimizer=optimizer, dataset=train_loader, epoch=epoch) 
-        break 
+        # break 
 
 
 def train(model, tokenizer, optimizer, dataset, epoch): 
     model.train() 
     avg_loss = AverageMeter() 
-    avg_acc = AverageMeter() 
+    avg_acc1 = AverageMeter()
+    avg_acc3 = AverageMeter()
+    avg_acc5 = AverageMeter() 
     iteration = 1 
 
     for instance in dataset: 
@@ -56,24 +61,23 @@ def train(model, tokenizer, optimizer, dataset, epoch):
         avg_loss.update(loss.item()) 
 
         # print(logits.size())
-        if acc_compute(logits, labels): 
-            acc = 1 
-        else:
-            acc = 0
-        avg_acc.update(acc)
+        flag_5, flag_3, flag_1 =  acc_compute(logits, labels) 
+        avg_acc5.update(int(flag_5))
+        avg_acc3.update(int(flag_3))
+        avg_acc1.update(int(flag_1))
         
         if iteration % print_freq == 0:
             print('Epoch:[{0}][{1}/{2}]\t'
             'Loss {loss.val:.4f} ({loss.avg:.4f})\t'
             'Classify Acc {acc.val:.3f} ({acc.avg:.3f})'.format(epoch, iteration, len(dataset),loss=avg_loss, acc=avg_acc)) 
         iteration += 1 
-        break 
+        # break
 
 def acc_compute(logits, labels):
     _, idx = torch.sort(logits.squeeze(0)) 
     idx = idx.tolist() 
     labels = labels.item()
-    return labels in idx[-90:]
+    return labels in idx[-150:], labels in idx[-90:], labels in idx[-31:]
 
 # class for evaluation metric 
 class AverageMeter(object):

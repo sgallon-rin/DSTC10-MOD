@@ -69,7 +69,7 @@ def train(model, tokenizer, optimizer, dataset, epoch):
         if iteration % print_freq == 0:
             print('Epoch:[{0}][{1}/{2}]\t'
             'Loss {loss.val:.4f} ({loss.avg:.4f})\t'
-            'Classify Acc {acc.val:.3f} ({acc.avg:.3f})'.format(epoch, iteration, len(dataset),loss=avg_loss, acc=avg_acc)) 
+            'Classify Acc {acc1.val:.3f} ({acc1.avg:.3f})|{acc3.val:.3f} ({acc3.avg:.3f})|{acc5.val:.3f} ({acc5.avg:.3f})'.format(epoch, iteration, len(dataset),loss=avg_loss, acc1=avg_acc1, acc3=avg_acc3, acc5=avg_acc5)) 
         iteration += 1 
         # break
 

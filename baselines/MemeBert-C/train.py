@@ -47,7 +47,7 @@ def train(model, tokenizer, optimizer, dataset, epoch):
     for instance in dataset: 
         
         history_txt, labels = instance 
-        history_txt, labels = history_txt, labels.squeeze(0)
+        history_txt, labels = history_txt.to(device), labels.squeeze(0).to(device)
         # print(history_txt.size(), labels.size()) 
         loss, logits  = model(input_ids=history_txt, labels=labels) 
         loss.backward()

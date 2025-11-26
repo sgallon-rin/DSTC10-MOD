@@ -1,6 +1,13 @@
 """
 python baselines/MemeBert-C/train_eval.py \
   --do_train --do_eval \
+  --epochs 8 \
+  --batch_size 1 \
+  --num_workers 8 \
+  --output_dir runs/memebert-c
+
+python baselines/MemeBert-C/train_eval.py \
+  --do_train --do_eval \
   --train_path data/MOD_full/ft_local/MOD-Dataset/validation/validation.json \
   --output_dir runs/memebert-c-test
 
@@ -69,7 +76,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--checkpoint_path", type=str, default="", help="Checkpoint to load instead of training.")
     parser.add_argument("--epochs", type=int, default=1)
     parser.add_argument("--batch_size", type=int, default=1, help="Keep 1 to mimic original baseline.")
-    parser.add_argument("--num_workers", type=int, default=0)
+    parser.add_argument("--num_workers", type=int, default=8)
     parser.add_argument("--lr", type=float, default=6e-5)
     parser.add_argument("--gradient_accumulation_steps", type=int, default=5)
     parser.add_argument("--print_freq", type=int, default=5000)
@@ -123,11 +130,16 @@ def train_one_epoch(
     avg_acc3 = AverageMeter()
     avg_acc5 = AverageMeter()
     optimizer.zero_grad()
+    illegal_count = 0
 
     for iteration, batch in enumerate(loader, start=1):
         history_txt, labels = batch
         history_txt = history_txt.to(device)
         labels = labels.squeeze(0).to(device)
+        if labels.item() < 0 or labels.item() >= model.num_labels:
+            #print("Warning: illegal label:'{}', skip this sample".format(labels.item()))
+            illegal_count += 1
+            continue
 
         loss, logits = model(input_ids=history_txt, labels=labels)
         loss.backward()
@@ -151,6 +163,7 @@ def train_one_epoch(
                     epoch, iteration, len(loader), loss=avg_loss, acc1=avg_acc1, acc3=avg_acc3, acc5=avg_acc5
                 )
             )
+    print("Warning: Skipped {} illegal samples (label>num_labels)".format(illegal_count))
 
 
 def prepare_eval_tensor(sample: Dict, tokenizer) -> Optional[torch.Tensor]:
